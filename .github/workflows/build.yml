@@ -1,16 +1,28 @@
-name: Build unsigned IPA
+name: Build OATH-IDSwitch
 
+# 唯一入口：推 main 自动构建 → 产出未签名 IPA → 自动发布到 Release
 on:
   push:
     branches: [ main ]
+    paths:
+      - 'IDSwitch/**'
+      - '.github/workflows/build.yml'
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: oath-idswitch
+  cancel-in-progress: true
+
+env:
+  IPA_NAME: OATH-IDSwitch-unsigned.ipa
+  TAG: idswitch-latest
 
 jobs:
   build:
-    runs-on: macos-15
+    runs-on: macos-14
     timeout-minutes: 30
 
     steps:
@@ -22,44 +34,72 @@ jobs:
           echo "iOS SDK: $(xcrun --sdk iphoneos --show-sdk-version)"
 
       - name: Decode bundled assets
+        working-directory: IDSwitch
         run: python3 scripts/prepare_assets.py
 
       - name: Install XcodeGen
         run: brew install xcodegen
 
       - name: Generate Xcode project
+        working-directory: IDSwitch
         run: xcodegen generate --spec project.yml
 
       - name: Archive (unsigned)
+        working-directory: IDSwitch
         run: |
           set -o pipefail
           xcodebuild \
-            -project OathWallpaper.xcodeproj \
-            -scheme OathWallpaper \
+            -project IDSwitch.xcodeproj \
+            -scheme IDSwitch \
             -configuration Release \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
-            -archivePath build/OathWallpaper.xcarchive \
+            -archivePath build/IDSwitch.xcarchive \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            DEVELOPMENT_TEAM="" \
             archive
 
-      - name: Package .ipa
+      - name: Package IPA
+        working-directory: IDSwitch
         run: |
           set -euo pipefail
-          APP="build/OathWallpaper.xcarchive/Products/Applications/OathWallpaper.app"
-          test -d "$APP" || { echo "::error::找不到 .app，archive 可能失败"; exit 1; }
-          rm -rf Payload OathWallpaper-unsigned.ipa
+          APP="build/IDSwitch.xcarchive/Products/Applications/IDSwitch.app"
+          test -d "$APP" || { echo "::error::找不到 .app，archive 失败"; exit 1; }
+          rm -rf Payload "$IPA_NAME"
           mkdir Payload
           cp -R "$APP" Payload/
-          zip -qry OathWallpaper-unsigned.ipa Payload
-          ls -lh OathWallpaper-unsigned.ipa
+          zip -qry "$IPA_NAME" Payload
+          echo "产物体积：$(du -h "$IPA_NAME" | cut -f1)"
+          ls -l "$IPA_NAME"
 
-      - name: Upload IPA
+      - name: Publish to Release
+        working-directory: IDSwitch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          NOTES="未签名 IPA，可用全能签 / eSign / AltStore 自签安装。作者：誓言 / OATH　QQ：3506933923　构建号：${{ github.run_number }}"
+          gh release delete "$TAG" --yes --cleanup-tag || true
+          gh release create "$TAG" "$IPA_NAME" \
+            --title "OATH-IDSwitch 最新构建" \
+            --notes "$NOTES"
+          URL="https://github.com/${{ github.repository }}/releases/download/$TAG/$IPA_NAME"
+          echo "下载链接：$URL"
+          {
+            echo "### ⬇️ OATH-IDSwitch 未签名 IPA"
+            echo ""
+            echo "$URL"
+            echo ""
+            echo "签名方式：全能签 / eSign / AltStore 自签安装"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload artifact backup
         uses: actions/upload-artifact@v4
         with:
-          name: OathWallpaper-unsigned-ipa
-          path: OathWallpaper-unsigned.ipa
+          name: OATH-IDSwitch-ipa
+          path: IDSwitch/OATH-IDSwitch-unsigned.ipa
           if-no-files-found: error
           retention-days: 30

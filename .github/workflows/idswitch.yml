@@ -1,91 +1,14 @@
-name: Build OATH-IDSwitch
+name: OATH-IDSwitch（旧入口，已停用）
 
+# 旧工作流保留占位，避免与 build.yml 重复构建。
+# 真正生效的是 .github/workflows/build.yml（自动构建 + 发布 Release）。
+# 想彻底清掉：在网页端打开本文件 → 右上角删除图标。
 on:
-  push:
-    branches: [ main ]
-    paths:
-      - 'IDSwitch/**'
-      - '.github/workflows/idswitch.yml'
   workflow_dispatch:
 
-permissions:
-  contents: write
-
-env:
-  IPA_NAME: OATH-IDSwitch-unsigned.ipa
-
 jobs:
-  build:
-    runs-on: macos-15
-    timeout-minutes: 30
-
+  notice:
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Show toolchain
-        run: |
-          xcodebuild -version
-          echo "iOS SDK: $(xcrun --sdk iphoneos --show-sdk-version)"
-
-      - name: Decode bundled assets
-        working-directory: IDSwitch
-        run: python3 scripts/prepare_assets.py
-
-      - name: Install XcodeGen
-        run: brew install xcodegen
-
-      - name: Generate Xcode project
-        working-directory: IDSwitch
-        run: xcodegen generate --spec project.yml
-
-      - name: Archive (unsigned)
-        working-directory: IDSwitch
-        run: |
-          set -o pipefail
-          xcodebuild \
-            -project IDSwitch.xcodeproj \
-            -scheme IDSwitch \
-            -configuration Release \
-            -sdk iphoneos \
-            -destination 'generic/platform=iOS' \
-            -archivePath build/IDSwitch.xcarchive \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            archive
-
-      - name: Package IPA
-        working-directory: IDSwitch
-        run: |
-          set -euo pipefail
-          APP="build/IDSwitch.xcarchive/Products/Applications/IDSwitch.app"
-          test -d "$APP" || { echo "::error::找不到 .app，archive 可能失败"; exit 1; }
-          rm -rf Payload "$IPA_NAME"
-          mkdir Payload
-          cp -R "$APP" Payload/
-          zip -qry "$IPA_NAME" Payload
-          ls -lh "$IPA_NAME"
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: OATH-IDSwitch-ipa
-          path: IDSwitch/OATH-IDSwitch-unsigned.ipa
-          if-no-files-found: error
-          retention-days: 30
-
-      - name: Publish release
-        working-directory: IDSwitch
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -e
-          TAG="idswitch-latest"
-          NOTES="未签名 IPA，可直接用全能签 / eSign / AltStore 自签安装。作者：誓言 / OATH　QQ：3506933923　构建号：${{ github.run_number }}"
-          gh release delete "$TAG" --yes --cleanup-tag || true
-          gh release create "$TAG" "$IPA_NAME" --title "OATH-IDSwitch 最新构建" --notes "$NOTES"
-          URL="https://github.com/${{ github.repository }}/releases/download/$TAG/$IPA_NAME"
-          echo "### ⬇️ 下载 OATH-IDSwitch" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "$URL" >> "$GITHUB_STEP_SUMMARY"
-          echo "下载地址：$URL"
+      - name: Notice
+        run: echo "此入口已停用，请使用 .github/workflows/build.yml"
