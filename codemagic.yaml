@@ -1,0 +1,134 @@
+# ============================================================
+# OATH-IDSwitch · Codemagic 构建配置
+# 作者：誓言 / OATH　QQ：3506933923
+#
+# 用途：在 Codemagic（macOS 云主机）上编译本项目，输出【未签名 IPA】，
+#      可直接用全能签 / eSign / AltStore 自签安装。不依赖 GitHub Actions。
+#
+# 用法：
+#   1. https://codemagic.io 用 GitHub 登录 → Add application → 选 oath05/oath
+#   2. 项目类型选 iOS App Store（或 Other）
+#   3. 构建时选 workflow：oath-idswitch-unsigned
+#   4. 构建完成后在构建页面的 Artifacts 区下载 OATH-IDSwitch-unsigned.ipa
+# ============================================================
+
+workflows:
+  oath-idswitch-unsigned:
+    name: OATH-IDSwitch（未签名 IPA）
+
+    # macOS 云主机；免费额度 500 分钟/月，单次构建约 4–6 分钟
+    instance_type: mac_mini_m2
+    max_build_duration: 40
+
+    environment:
+      xcode: latest
+      vars:
+        APP_DIR: "IDSwitch"
+        SCHEME: "IDSwitch"
+        IPA_NAME: "OATH-IDSwitch-unsigned.ipa"
+        BUNDLE_ID: "com.oath.idswitch"
+
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: main
+          include: true
+          source: true
+      cancel_previous_builds: true
+
+    scripts:
+      - name: 环境自检
+        script: |
+          set -e
+          xcodebuild -version
+          echo "iOS SDK: $(xcrun --sdk iphoneos --show-sdk-version)"
+          echo "Python: $(python3 --version)"
+          test -d "$APP_DIR" || { echo "缺少 $APP_DIR 目录"; exit 1; }
+
+      - name: 安装 XcodeGen
+        script: |
+          set -e
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+          xcodegen --version
+
+      - name: 还原图标与作者头像
+        script: |
+          set -e
+          cd "$APP_DIR"
+          python3 scripts/prepare_assets.py
+          test -f Resources/Assets.xcassets/AppIcon.appiconset/icon-1024.png
+          test -f Resources/Assets.xcassets/AuthorAvatar.imageset/avatar.jpg
+
+      - name: 生成 Xcode 工程
+        script: |
+          set -e
+          cd "$APP_DIR"
+          xcodegen generate --spec project.yml
+          ls -d *.xcodeproj
+          xcodebuild -list -project "$SCHEME.xcodeproj"
+
+      - name: 归档（全程关闭签名）
+        script: |
+          set -o pipefail
+          cd "$APP_DIR"
+          xcodebuild \
+            -project "$SCHEME.xcodeproj" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -archivePath "build/$SCHEME.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            DEVELOPMENT_TEAM="" \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=NO \
+            archive
+
+      - name: 打包未签名 IPA
+        script: |
+          set -euo pipefail
+          cd "$APP_DIR"
+          APP="build/$SCHEME.xcarchive/Products/Applications/$SCHEME.app"
+          test -d "$APP" || { echo "归档产物缺失：$APP"; exit 1; }
+
+          rm -rf Payload "$IPA_NAME"
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          zip -qry "$IPA_NAME" Payload
+
+          echo "---------- 产物校验 ----------"
+          unzip -l "$IPA_NAME" | head -15
+          echo "文件大小：$(du -h "$IPA_NAME" | cut -f1)"
+
+          # 未签名校验：不应存在 _CodeSignature
+          if [ -d "Payload/$SCHEME.app/_CodeSignature" ]; then
+            echo "警告：检测到 _CodeSignature，可能并非未签名包"
+          else
+            echo "确认：无 _CodeSignature，为标准未签名 IPA"
+          fi
+
+          # 版本号速览
+          /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" \
+            "Payload/$SCHEME.app/Info.plist" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" \
+            "Payload/$SCHEME.app/Info.plist" 2>/dev/null || true
+
+    artifacts:
+      - IDSwitch/OATH-IDSwitch-unsigned.ipa
+      - IDSwitch/build/IDSwitch.xcarchive
+      - /tmp/xcodebuild_logs/*.log
+
+    # 可选：把产物顺手发到邮箱。把 recipients 改成你的邮箱后取消注释即可。
+    # publishing:
+    #   email:
+    #     recipients:
+    #       - you@example.com
+    #     notify:
+    #       success: true
+    #       failure: true
