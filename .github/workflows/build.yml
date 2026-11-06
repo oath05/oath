@@ -1,0 +1,65 @@
+name: Build unsigned IPA
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          echo "iOS SDK: $(xcrun --sdk iphoneos --show-sdk-version)"
+
+      - name: Decode bundled assets
+        run: python3 scripts/prepare_assets.py
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate --spec project.yml
+
+      - name: Archive (unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project OathWallpaper.xcodeproj \
+            -scheme OathWallpaper \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/OathWallpaper.xcarchive \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            archive
+
+      - name: Package .ipa
+        run: |
+          set -euo pipefail
+          APP="build/OathWallpaper.xcarchive/Products/Applications/OathWallpaper.app"
+          test -d "$APP" || { echo "::error::找不到 .app，archive 可能失败"; exit 1; }
+          rm -rf Payload OathWallpaper-unsigned.ipa
+          mkdir Payload
+          cp -R "$APP" Payload/
+          zip -qry OathWallpaper-unsigned.ipa Payload
+          ls -lh OathWallpaper-unsigned.ipa
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: OathWallpaper-unsigned-ipa
+          path: OathWallpaper-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 30
