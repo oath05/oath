@@ -81,12 +81,9 @@ jobs:
         run: |
           set -e
           TAG="idswitch-latest"
+          NOTES="未签名 IPA，可直接用全能签 / eSign / AltStore 自签安装。作者：誓言 / OATH　QQ：3506933923　构建号：${{ github.run_number }}"
           gh release delete "$TAG" --yes --cleanup-tag || true
-          gh release create "$TAG" "$IPA_NAME" \
-            --title "OATH-IDSwitch 最新构建" \
-            --notes "未签名 IPA，可直接用全能签 / eSign / AltStore 自签安装。
-作者：誓言 / OATH　QQ：3506933923
-构建号：${{ github.run_number }}　提交：${{ github.sha }}"
+          gh release create "$TAG" "$IPA_NAME" --title "OATH-IDSwitch 最新构建" --notes "$NOTES"
           URL="https://github.com/${{ github.repository }}/releases/download/$TAG/$IPA_NAME"
           echo "### ⬇️ 下载 OATH-IDSwitch" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
