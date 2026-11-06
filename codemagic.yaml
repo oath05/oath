@@ -119,6 +119,32 @@ workflows:
           /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" \
             "Payload/$SCHEME.app/Info.plist" 2>/dev/null || true
 
+      # 可选：把 IPA 发到 GitHub Release，得到永久直链。
+      # 需要在 Codemagic → Environment variables 里加两个变量：
+      #   GH_TOKEN（勾选 Secure，GitHub Personal Access Token，需 repo 权限）
+      #   GH_REPO = oath05/oath
+      # 没配就自动跳过，产物仍可在构建页面下载。
+      - name: 发布到 GitHub Release（可选，需 GH_TOKEN）
+        script: |
+          set -e
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "未配置 GH_TOKEN，跳过 Release 发布"
+            echo "产物请在本页 Artifacts 区下载：$IPA_NAME"
+            exit 0
+          fi
+          command -v gh >/dev/null 2>&1 || brew install gh
+          cd "$APP_DIR"
+          REPO="${GH_REPO:-oath05/oath}"
+          gh release delete "idswitch-latest" --repo "$REPO" --yes --cleanup-tag 2>/dev/null || true
+          gh release create "idswitch-latest" "$IPA_NAME" \
+            --repo "$REPO" \
+            --title "OATH-IDSwitch 最新构建" \
+            --notes "未签名 IPA，可用全能签自签安装。作者：誓言 / OATH　QQ：3506933923"
+          echo "=========================================="
+          echo "IPA 直链：https://github.com/$REPO/releases/download/idswitch-latest/$IPA_NAME"
+          echo "=========================================="
+        ignore_failure: true
+
     artifacts:
       - IDSwitch/OATH-IDSwitch-unsigned.ipa
       - IDSwitch/build/IDSwitch.xcarchive
